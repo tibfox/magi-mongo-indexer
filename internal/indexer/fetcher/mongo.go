@@ -34,6 +34,13 @@ type Result struct {
 	Logs []string `bson:"logs"`
 }
 
+// BlockHeader represents a block header from the block_headers collection
+type BlockHeader struct {
+	StartBlock uint64 `bson:"start_block"`
+	EndBlock   uint64 `bson:"end_block"`
+	Timestamp  string `bson:"ts"`
+}
+
 // HandleMongo manages a connection to MongoDB and polls the contract_state collection
 // for new entries, inserting them into Postgres.
 func HandleMongo(db *sql.DB, mongoURI string, dbName string, pollInterval time.Duration) error {
@@ -54,7 +61,8 @@ func HandleMongo(db *sql.DB, mongoURI string, dbName string, pollInterval time.D
 
 	log.Printf("[mongo] ✅ connected to MongoDB at %s", mongoURI)
 
-	collection := client.Database(dbName).Collection("contract_state")
+	contractStateCol := client.Database(dbName).Collection("contract_state")
+	blockHeadersCol := client.Database(dbName).Collection("block_headers")
 
 	// Track the last processed block height per contract
 	lastProcessed := make(map[string]uint64)
@@ -92,7 +100,7 @@ func HandleMongo(db *sql.DB, mongoURI string, dbName string, pollInterval time.D
 
 			// Process each contract
 			for _, contract := range mappings.Contracts {
-				if err := processContract(ctx, db, collection, contract, lastProcessed); err != nil {
+				if err := processContract(ctx, db, contractStateCol, blockHeadersCol, contract, lastProcessed); err != nil {
 					log.Printf("[mongo] error processing contract %s: %v", contract.Address, err)
 				}
 			}
@@ -100,11 +108,28 @@ func HandleMongo(db *sql.DB, mongoURI string, dbName string, pollInterval time.D
 	}
 }
 
+// getBlockTimestamp fetches the timestamp for a given block height from block_headers
+func getBlockTimestamp(ctx context.Context, blockHeadersCol *mongo.Collection, blockHeight uint64) (string, error) {
+	filter := bson.M{
+		"start_block": bson.M{"$lte": blockHeight},
+		"end_block":   bson.M{"$gte": blockHeight},
+	}
+
+	var header BlockHeader
+	err := blockHeadersCol.FindOne(ctx, filter).Decode(&header)
+	if err != nil {
+		return "", fmt.Errorf("failed to find block header for height %d: %w", blockHeight, err)
+	}
+
+	return header.Timestamp, nil
+}
+
 // processContract fetches new entries for a specific contract and processes them
 func processContract(
 	ctx context.Context,
 	db *sql.DB,
-	collection *mongo.Collection,
+	contractStateCol *mongo.Collection,
+	blockHeadersCol *mongo.Collection,
 	contract types.ContractMapping,
 	lastProcessed map[string]uint64,
 ) error {
@@ -118,7 +143,7 @@ func processContract(
 	// Sort by block height ascending
 	findOptions := options.Find().SetSort(bson.D{{Key: "block_height", Value: 1}})
 
-	cursor, err := collection.Find(ctx, filter, findOptions)
+	cursor, err := contractStateCol.Find(ctx, filter, findOptions)
 	if err != nil {
 		return fmt.Errorf("failed to query MongoDB: %w", err)
 	}
@@ -133,6 +158,13 @@ func processContract(
 		if err := cursor.Decode(&doc); err != nil {
 			log.Printf("[mongo] failed to decode document: %v", err)
 			continue
+		}
+
+		// Get the actual timestamp from block headers
+		timestamp, err := getBlockTimestamp(ctx, blockHeadersCol, doc.BlockHeight)
+		if err != nil {
+			log.Printf("[mongo] failed to get timestamp for block %d: %v, using current time", doc.BlockHeight, err)
+			timestamp = time.Now().Format(time.RFC3339)
 		}
 
 		// Process each result that has logs
@@ -152,7 +184,7 @@ func processContract(
 					TxHash:          txHash,
 					ContractAddress: doc.ContractID,
 					Log:             logEntry,
-					Timestamp:       time.Now().Format(time.RFC3339), // We don't have timestamp in the doc
+					Timestamp:       timestamp,
 				}
 
 				// Insert raw log for traceability
