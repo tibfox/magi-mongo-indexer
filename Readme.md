@@ -28,6 +28,22 @@ Services:
 * **Postgres** → `localhost:5432`
 * **Hasura GraphQL** → `http://localhost:8081/hasura/console` (admin secret stored in `.env`)
 * **Indexer** (Go ingestor) → polls MongoDB contract_state collection and writes logs into Postgres
+* **Health Check** → `http://localhost:8080/health` (configurable via `HEALTH_PORT` env var)
+
+### Health Check Endpoint
+
+The indexer exposes a health check endpoint for monitoring and orchestration:
+
+```bash
+curl http://localhost:8080/health
+```
+
+Response:
+```json
+{"status":"healthy","postgres":true,"mappings":true}
+```
+
+Returns HTTP 200 when healthy, HTTP 503 when unhealthy (Postgres connection lost or mappings not loaded).
 
 If you need to change the MongoDB connection or polling interval, you can modify the `docker-compose.yaml`:
 ```
@@ -65,12 +81,14 @@ events:
     log_type: "mint" # type of the log event
     table: "contractslug_mint_events" # target table name
     schema: # columns in the target table (numeric, string and bool)
-      id: numeric 
+      id: numeric
       by: string
+      email: string
     parse: "json" # parse mode of the log
-    fields: # mappings
-      id: "$.id" # jsonPath expressions
+    fields: # jsonPath expressions (supports nested paths)
+      id: "$.id"
       by: "$.by"
+      email: "$.user.profile.email"  # nested paths supported
 ```
 Additional to these mappings we also store columns based of the transaction the log is related to:
 - indexer_block_height
@@ -81,14 +99,14 @@ Additional to these mappings we also store columns based of the transaction the 
 #### Example log
 
 ```json
-{ "type": "mint", "id":123, "by":"bob" }
+{ "type": "mint", "id": 123, "by": "bob", "user": { "profile": { "email": "bob@example.com" } } }
 ```
 
 #### Stored in Postgres in table `contractslug_mint_events`
 
-| indexer_block_height | indexer_tx_hash | indexer_ts          | id  | by  |
-| -------------------- | --------------- | ------------------- | --- | --- |
-| 12345                | 0xabc           | 2025-10-02T22:00:33 | 123 | bob |
+| indexer_block_height | indexer_tx_hash | indexer_ts          | id  | by  | email           |
+| -------------------- | --------------- | ------------------- | --- | --- | --------------- |
+| 12345                | 0xabc           | 2025-10-02T22:00:33 | 123 | bob | bob@example.com |
 
 
 ### Parse `csv`
