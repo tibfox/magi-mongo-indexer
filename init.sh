@@ -3,15 +3,15 @@ set -euo pipefail
 
 ENV_FILE=".env"
 
-# === Step 1: Generate admin secret if not exists ===
-# Creates a .env file containing HASURA_GRAPHQL_ADMIN_SECRET if missing.
+# === Step 1: Generate .env if not exists ===
+# Copies .env.example and generates a random admin secret.
 # The secret is a random 32-byte hex string generated via openssl.
-# it is needed for login to the hasura console
 if [ ! -f "$ENV_FILE" ]; then
-  echo "[init] Creating $ENV_FILE with random admin secret..."
+  echo "[init] Creating $ENV_FILE from .env.example..."
+  cp .env.example "$ENV_FILE"
   ADMIN_SECRET=$(openssl rand -hex 32)
-  echo "HASURA_GRAPHQL_ADMIN_SECRET=$ADMIN_SECRET" > "$ENV_FILE"
-  echo "[init] Saved new admin secret to $ENV_FILE"
+  sed -i "s/^HASURA_GRAPHQL_ADMIN_SECRET=.*/HASURA_GRAPHQL_ADMIN_SECRET=$ADMIN_SECRET/" "$ENV_FILE"
+  echo "[init] Generated random admin secret in $ENV_FILE"
 else
   echo "[init] Using existing $ENV_FILE"
 fi
@@ -35,10 +35,16 @@ echo "[init] Starting services with Docker Compose..."
 docker compose up -d
 
 # === Step 5: Wait for Hasura to come up ===
-# Polls Hasura’s /healthz endpoint until it returns 200 OK (max 30 tries).
-echo "[init] Waiting for Hasura to start..."
+# Polls Hasura's /healthz endpoint until it returns 200 OK (max 30 tries).
+# Read port from .env (default 8081)
+HASURA_PORT=$(grep -E "^HASURA_PORT=" "$ENV_FILE" | cut -d'=' -f2 || echo "8081")
+HASURA_PORT=${HASURA_PORT:-8081}
+HEALTH_PORT=$(grep -E "^HEALTH_PORT=" "$ENV_FILE" | cut -d'=' -f2 || echo "8080")
+HEALTH_PORT=${HEALTH_PORT:-8080}
+
+echo "[init] Waiting for Hasura to start on port $HASURA_PORT..."
 TRIES=0
-until curl -s http://localhost:8081/healthz >/dev/null; do
+until curl -s "http://localhost:${HASURA_PORT}/healthz" >/dev/null; do
   TRIES=$((TRIES+1))
   if [ $TRIES -gt 30 ]; then
     echo "[init] ERROR: Hasura did not start in time."
@@ -47,5 +53,6 @@ until curl -s http://localhost:8081/healthz >/dev/null; do
   sleep 2
 done
 
-echo "[init] ✅ Hasura is running at http://localhost:8081/console"
+echo "[init] ✅ Hasura is running at http://localhost:${HASURA_PORT}/console"
+echo "[init] ✅ Health check at http://localhost:${HEALTH_PORT}/health"
 echo "[init] Admin secret stored in .env"
