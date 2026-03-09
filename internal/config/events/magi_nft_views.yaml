@@ -70,18 +70,23 @@ views:
         indexer_ts
       FROM magi_nft_template_mint_events;
 
-  # Token info — max supply, soulbound status from tokenCreated events
+  # Token info — max supply, soulbound status, has_properties from events
   - name: magi_nft_token_info
     sql: |
       CREATE OR REPLACE VIEW magi_nft_token_info AS
       SELECT
-        indexer_contract_id AS contract_id,
-        token_id,
-        max_supply::bigint AS max_supply,
-        (soulbound = 'true') AS soulbound,
-        indexer_block_height,
-        indexer_ts AS created_ts
-      FROM magi_nft_token_created_events;
+        tc.indexer_contract_id AS contract_id,
+        tc.token_id,
+        tc.max_supply::bigint AS max_supply,
+        (tc.soulbound = 'true') AS soulbound,
+        tc.indexer_block_height,
+        tc.indexer_ts AS created_ts,
+        (ps.token_id IS NOT NULL) AS has_properties
+      FROM magi_nft_token_created_events tc
+      LEFT JOIN (
+        SELECT DISTINCT indexer_contract_id, token_id
+        FROM magi_nft_properties_set_events
+      ) ps ON tc.indexer_contract_id = ps.indexer_contract_id AND tc.token_id = ps.token_id;
 
   # Current NFT balances per (contract, account, token_id)
   # Computed from all transfer events (from='' is mint, to='' is burn)
