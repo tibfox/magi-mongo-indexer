@@ -1,7 +1,7 @@
 # ===============================
 # MAGI MARKET — event → table mappings (ERC-1155 NFT marketplace + ERC-20 token sales)
 # ===============================
-# Contract: vsc1BnMAaeUzhzVcfKMDG5vphthhymk6irjLNq (vsc-testnet)
+# Contract: vsc1BdZFXb8HdLptKUamNG4nL74hSb6UUBEiQA (magi-mainnet)
 # Events are JSON: {"type":"<t>","attributes":{...},"tx":"<id>"} — parse: json,
 # fields use $.attributes.<key>. The indexer auto-adds indexer_contract_id /
 # indexer_block_height / indexer_ts / indexer_tx_hash to every row.
@@ -10,8 +10,8 @@
 # ===============================
 
 contracts:
-  - address: "vsc1BnMAaeUzhzVcfKMDG5vphthhymk6irjLNq"
-    fromBlockHeight: 3168000
+  - address: "vsc1BdZFXb8HdLptKUamNG4nL74hSb6UUBEiQA"
+    fromBlockHeight: 5000
     events:
 
       # ---- fixed-price NFT listings ----
