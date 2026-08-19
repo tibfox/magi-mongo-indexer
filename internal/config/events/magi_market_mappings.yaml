@@ -196,3 +196,64 @@ contracts:
         schema: { token: string }
         parse: "json"
         fields: { token: "$.attributes.token" }
+
+      # ---- buckets (random-draw sales: packs, raffles, gacha) ----
+      # The CONTRACT picks which unit a buyer receives, so a bucket's contents
+      # and odds have to be visible without trusting the seller. bucket_listed
+      # therefore carries the entries themselves, not just a count — safe
+      # because listBucket caps a call at MaxEntriesPerCall (24), so no single
+      # event holds an unbounded array. A big bucket arrives as a listing plus
+      # a series of equally-bounded restocks.
+      #
+      # entries / pack_draws are JSON arrays landing in TEXT columns; the
+      # parser re-serialises them, and magi_market_bucket_entries expands them.
+      - log_type: "bucket_listed"
+        table: "magi_market_bucket_listed_events"
+        schema: { bucket_id: numeric, seller: string, nft_contract: string, payment_token: string, price_per_draw: string, price_per_pack: string, pack_draws: string, expiration_block: numeric, fee_bps: numeric, royalty_bps: numeric, royalty_recipient: string, entries: string, entry_count: numeric, units: numeric }
+        parse: "json"
+        fields: { bucket_id: "$.attributes.bucketId", seller: "$.attributes.seller", nft_contract: "$.attributes.nftContract", payment_token: "$.attributes.paymentToken", price_per_draw: "$.attributes.pricePerDraw", price_per_pack: "$.attributes.pricePerPack", pack_draws: "$.attributes.packDraws", expiration_block: "$.attributes.expirationBlock", fee_bps: "$.attributes.feeBps", royalty_bps: "$.attributes.royaltyBps", royalty_recipient: "$.attributes.royaltyRecipient", entries: "$.attributes.entries", entry_count: "$.attributes.entryCount", units: "$.attributes.units" }
+
+      - log_type: "bucket_restocked"
+        table: "magi_market_bucket_restocked_events"
+        schema: { bucket_id: numeric, seller: string, entries: string, added: numeric, total_entries: numeric, units_added: numeric }
+        parse: "json"
+        fields: { bucket_id: "$.attributes.bucketId", seller: "$.attributes.seller", entries: "$.attributes.entries", added: "$.attributes.added", total_entries: "$.attributes.totalEntries", units_added: "$.attributes.unitsAdded" }
+
+      # One row per delivered unit. `pool` matters: pool balance is not
+      # derivable from totals, and a bucket with guaranteed slots drains
+      # unevenly by design.
+      - log_type: "bucket_draw"
+        table: "magi_market_bucket_draw_events"
+        schema: { bucket_id: numeric, buyer: string, token_id: string, pool: numeric, draw_index: numeric }
+        parse: "json"
+        fields: { bucket_id: "$.attributes.bucketId", buyer: "$.attributes.buyer", token_id: "$.attributes.tokenId", pool: "$.attributes.pool", draw_index: "$.attributes.drawIndex" }
+
+      # One row per transaction. units_left is the contract's own figure and is
+      # used to reconcile the derived count rather than replace it.
+      - log_type: "bucket_purchase"
+        table: "magi_market_bucket_purchase_events"
+        schema: { bucket_id: numeric, buyer: string, mode: string, draws: numeric, payment_token: string, paid: string, fee: string, royalty: string, units_left: numeric }
+        parse: "json"
+        fields: { bucket_id: "$.attributes.bucketId", buyer: "$.attributes.buyer", mode: "$.attributes.mode", draws: "$.attributes.draws", payment_token: "$.attributes.paymentToken", paid: "$.attributes.paid", fee: "$.attributes.fee", royalty: "$.attributes.royalty", units_left: "$.attributes.unitsLeft" }
+
+      # The market never escrows, so stock can go stale: the seller sold it
+      # elsewhere or revoked approval. `units` is how many disappeared.
+      - log_type: "bucket_entry_dropped"
+        table: "magi_market_bucket_entry_dropped_events"
+        schema: { bucket_id: numeric, token_id: string, pool: numeric, units: numeric, reason: string }
+        parse: "json"
+        fields: { bucket_id: "$.attributes.bucketId", token_id: "$.attributes.tokenId", pool: "$.attributes.pool", units: "$.attributes.units", reason: "$.attributes.reason" }
+
+      # A bucket closes either by selling out or by the seller delisting it.
+      # Both leave unsold stock with the seller.
+      - log_type: "bucket_sold_out"
+        table: "magi_market_bucket_sold_out_events"
+        schema: { bucket_id: numeric, seller: string }
+        parse: "json"
+        fields: { bucket_id: "$.attributes.bucketId", seller: "$.attributes.seller" }
+
+      - log_type: "bucket_delisted"
+        table: "magi_market_bucket_delisted_events"
+        schema: { bucket_id: numeric, seller: string }
+        parse: "json"
+        fields: { bucket_id: "$.attributes.bucketId", seller: "$.attributes.seller" }

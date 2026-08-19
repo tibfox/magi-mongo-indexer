@@ -156,3 +156,111 @@ views:
           FROM magi_market_payment_token_removed_events
       ) ev
       ORDER BY token, indexer_block_height DESC, added DESC;
+
+  # ---- buckets (random-draw sales) ----
+  # Order matters: magi_market_bucket_entries is created before the pool view
+  # that reads from it.
+
+  # Contents of every bucket, expanded from the JSON entries the contract
+  # emits, with what has actually been drawn or gone stale subtracted. This is
+  # what lets a buyer see the odds before paying — the whole premise of a
+  # contract-picked draw is that the pool is public.
+  - name: magi_market_bucket_entries
+    sql: |
+      CREATE OR REPLACE VIEW magi_market_bucket_entries AS
+      WITH stocked AS (
+        SELECT src.bucket_id,
+               (e->>'tokenId') AS token_id,
+               (e->>'pool')::numeric AS pool,
+               SUM((e->>'amount')::numeric) AS amount_stocked
+        FROM (
+          SELECT bucket_id, entries FROM magi_market_bucket_listed_events
+          UNION ALL
+          SELECT bucket_id, entries FROM magi_market_bucket_restocked_events
+        ) src,
+        LATERAL json_array_elements(src.entries::json) AS e
+        WHERE src.entries IS NOT NULL AND src.entries <> ''
+        GROUP BY src.bucket_id, (e->>'tokenId'), (e->>'pool')::numeric
+      ), drawn AS (
+        SELECT bucket_id, token_id, COUNT(*)::numeric AS amount_drawn
+        FROM magi_market_bucket_draw_events GROUP BY bucket_id, token_id
+      ), dropped AS (
+        SELECT bucket_id, token_id, SUM(units)::numeric AS amount_dropped
+        FROM magi_market_bucket_entry_dropped_events GROUP BY bucket_id, token_id
+      )
+      SELECT
+        s.bucket_id, s.token_id, s.pool,
+        s.amount_stocked,
+        COALESCE(d.amount_drawn, 0) AS amount_drawn,
+        COALESCE(x.amount_dropped, 0) AS amount_dropped,
+        GREATEST(s.amount_stocked - COALESCE(d.amount_drawn, 0) - COALESCE(x.amount_dropped, 0), 0) AS amount_left
+      FROM stocked s
+      LEFT JOIN drawn d ON d.bucket_id = s.bucket_id AND d.token_id = s.token_id
+      LEFT JOIN dropped x ON x.bucket_id = s.bucket_id AND x.token_id = s.token_id;
+
+  # Units remaining per pool. A bucket with guaranteed slots drains UNEVENLY —
+  # the guaranteed pool empties first and strands the rest — so per-pool stock
+  # is what decides whether the next pack can actually be filled. The grand
+  # total does not.
+  - name: magi_market_bucket_pools
+    sql: |
+      CREATE OR REPLACE VIEW magi_market_bucket_pools AS
+      SELECT
+        bucket_id, pool,
+        SUM(amount_stocked) AS units_stocked,
+        SUM(amount_left) AS units_left,
+        COUNT(*) AS distinct_tokens
+      FROM magi_market_bucket_entries
+      GROUP BY bucket_id, pool;
+
+  # Current state of each bucket.
+  #
+  # units_left is DERIVED (stocked - drawn - dropped) so that restocks and
+  # stale-stock drops after the last purchase are counted.
+  #
+  # units_left_reported is the contract's OWN figure as of the most recent
+  # purchase — a checkpoint, not a live value. The two agree when nothing has
+  # changed since that purchase, and legitimately diverge after a restock or a
+  # dropped entry. Both are exposed because agreement at a checkpoint is the
+  # cheapest evidence that the log has been consumed correctly; treat a
+  # mismatch as a prompt to check for intervening events, not as corruption.
+  - name: magi_market_buckets
+    sql: |
+      CREATE OR REPLACE VIEW magi_market_buckets AS
+      SELECT
+        l.bucket_id, l.seller, l.nft_contract, l.payment_token,
+        l.price_per_draw, l.price_per_pack, l.pack_draws, l.expiration_block,
+        l.fee_bps, l.royalty_bps, l.royalty_recipient,
+        (l.entry_count + COALESCE(r.added, 0)) AS entry_count,
+        (l.units + COALESCE(r.units_added, 0)) AS units_stocked,
+        GREATEST(l.units + COALESCE(r.units_added, 0)
+                 - COALESCE(dr.drawn, 0) - COALESCE(dp.dropped, 0), 0) AS units_left,
+        p.units_left AS units_left_reported,
+        COALESCE(dr.drawn, 0) AS units_drawn,
+        COALESCE(dp.dropped, 0) AS units_dropped,
+        COALESCE(pc.purchases, 0) AS purchases,
+        (so.bucket_id IS NOT NULL) AS sold_out,
+        (dl.bucket_id IS NOT NULL) AS delisted,
+        (so.bucket_id IS NULL AND dl.bucket_id IS NULL) AS active,
+        l.indexer_contract_id, l.indexer_block_height, l.indexer_ts
+      FROM magi_market_bucket_listed_events l
+      LEFT JOIN (SELECT bucket_id, SUM(added) AS added, SUM(units_added) AS units_added
+                 FROM magi_market_bucket_restocked_events GROUP BY bucket_id) r
+        ON r.bucket_id = l.bucket_id
+      LEFT JOIN (SELECT bucket_id, COUNT(*)::numeric AS drawn
+                 FROM magi_market_bucket_draw_events GROUP BY bucket_id) dr
+        ON dr.bucket_id = l.bucket_id
+      LEFT JOIN (SELECT bucket_id, SUM(units)::numeric AS dropped
+                 FROM magi_market_bucket_entry_dropped_events GROUP BY bucket_id) dp
+        ON dp.bucket_id = l.bucket_id
+      LEFT JOIN (SELECT DISTINCT ON (bucket_id) bucket_id, units_left
+                 FROM magi_market_bucket_purchase_events
+                 ORDER BY bucket_id, indexer_block_height DESC) p
+        ON p.bucket_id = l.bucket_id
+      LEFT JOIN (SELECT bucket_id, COUNT(*) AS purchases
+                 FROM magi_market_bucket_purchase_events GROUP BY bucket_id) pc
+        ON pc.bucket_id = l.bucket_id
+      LEFT JOIN (SELECT DISTINCT bucket_id FROM magi_market_bucket_sold_out_events) so
+        ON so.bucket_id = l.bucket_id
+      LEFT JOIN (SELECT DISTINCT bucket_id FROM magi_market_bucket_delisted_events) dl
+        ON dl.bucket_id = l.bucket_id;
