@@ -264,3 +264,65 @@ views:
         ON so.bucket_id = l.bucket_id
       LEFT JOIN (SELECT DISTINCT bucket_id FROM magi_market_bucket_delisted_events) dl
         ON dl.bucket_id = l.bucket_id;
+
+  # ---- activity feed ----
+  # Every completed purchase in one shape, newest first.
+  #
+  # The join lives here rather than in each client: `bought` and
+  # `mint_spot_bought` carry only a listing_id, so without it a feed can say
+  # "listing #12 sold" but not WHICH NFT — which is the only part a reader
+  # cares about. Buckets and sweeps have no single NFT by nature (a draw is
+  # its own event, a sweep spans listings), so those rows carry a count
+  # instead and leave the token null.
+  #
+  # UNION ALL, not UNION: identical rows from different tables are different
+  # events, and de-duplicating them would silently drop repeat purchases.
+  - name: magi_market_activity
+    sql: |
+      CREATE OR REPLACE VIEW magi_market_activity AS
+      SELECT 'bought'::text AS kind, b.buyer AS actor,
+             l.nft_contract, l.token_id,
+             b.total_price AS price, l.payment_token,
+             b.amount AS count,
+             b.indexer_tx_hash, b.indexer_block_height, b.indexer_ts,
+             b.indexer_contract_id
+      FROM magi_market_bought_events b
+      LEFT JOIN magi_market_listings l ON l.listing_id = b.listing_id
+      UNION ALL
+      SELECT 'mintSpotBought', m.buyer,
+             l.nft_contract, l.token_id,
+             -- mint-spot and bundle events never carried a payment token, and
+             -- neither does the view built from them; the SDK back-fills it
+             -- from contract state when it needs one.
+             m.received, NULL,
+             m.amount,
+             m.indexer_tx_hash, m.indexer_block_height, m.indexer_ts,
+             m.indexer_contract_id
+      FROM magi_market_mint_spot_bought_events m
+      LEFT JOIN magi_market_mint_spots l ON l.listing_id = m.listing_id
+      UNION ALL
+      SELECT 'bundleBought', bb.buyer,
+             bl.nft_contract, NULL,
+             bb.total_price, NULL,
+             NULL,
+             bb.indexer_tx_hash, bb.indexer_block_height, bb.indexer_ts,
+             bb.indexer_contract_id
+      FROM magi_market_bundle_bought_events bb
+      LEFT JOIN magi_market_bundles bl ON bl.bundle_id = bb.bundle_id
+      UNION ALL
+      SELECT 'bucketPurchase', bp.buyer,
+             bk.nft_contract, NULL,
+             bp.paid, bp.payment_token,
+             bp.draws,
+             bp.indexer_tx_hash, bp.indexer_block_height, bp.indexer_ts,
+             bp.indexer_contract_id
+      FROM magi_market_bucket_purchase_events bp
+      LEFT JOIN magi_market_buckets bk ON bk.bucket_id = bp.bucket_id
+      UNION ALL
+      SELECT 'swept', s.buyer,
+             NULL, NULL,
+             s.total, s.payment_token,
+             s.count,
+             s.indexer_tx_hash, s.indexer_block_height, s.indexer_ts,
+             s.indexer_contract_id
+      FROM magi_market_swept_events s;

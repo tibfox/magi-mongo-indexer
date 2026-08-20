@@ -22,9 +22,29 @@
 # ===============================
 
 contracts:
-  - address: "vsc1Ba9AyyUcMnYVoDVsjoJztnPFHNxQwWBPsb"   # Okinoko DAO contract
-    fromBlockHeight: 5000
+  # Auto-discover every deployed+initialized Okinoko DAO instead of pinning one
+  # address. The DAO emits a distinctive `shindao_init` log on contract_init, so
+  # any contract that fires it is registered and indexed with these mappings.
+  # (The previous static address was the MAINNET contract, which does not exist
+  # on testnet — hence 0 rows.) fromBlockHeight floors the scan just below the
+  # first testnet DAO deploy (vsc1BjuZo… @ 5023338).
+  - discoverEvent: "shindao_init"
+    fromBlockHeight: 5023000
     events:
+      # Contract initialized — DAO registry (one row per initialized DAO).
+      # Also the discoverEvent above; indexing it here gives a listable set of
+      # DAO instances (with owner + mode) even before any project exists.
+      - log_type: "shindao_init"
+        table: "okinoko_dao_initialized_events"
+        schema:
+          owner: string
+          mode: string
+        parse: "csv"
+        delimiter: "|"
+        key_delimiter: ":"
+        fields:
+          owner: "1"
+          mode: "2"
       # Project created
       - log_type: "dc"
         table: "okinoko_dao_project_created_events"
