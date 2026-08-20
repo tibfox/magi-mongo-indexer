@@ -219,14 +219,14 @@ contracts:
         parse: "json"
         fields: { bucket_id: "$.attributes.bucketId", seller: "$.attributes.seller", entries: "$.attributes.entries", added: "$.attributes.added", total_entries: "$.attributes.totalEntries", units_added: "$.attributes.unitsAdded" }
 
-      # One row per delivered unit. `pool` matters: pool balance is not
+      # One row per delivered unit. `stack` matters: stack balance is not
       # derivable from totals, and a bucket with guaranteed slots drains
       # unevenly by design.
       - log_type: "bucket_draw"
         table: "magi_market_bucket_draw_events"
-        schema: { bucket_id: numeric, buyer: string, token_id: string, pool: numeric, draw_index: numeric }
+        schema: { bucket_id: numeric, buyer: string, token_id: string, stack: numeric, draw_index: numeric }
         parse: "json"
-        fields: { bucket_id: "$.attributes.bucketId", buyer: "$.attributes.buyer", token_id: "$.attributes.tokenId", pool: "$.attributes.pool", draw_index: "$.attributes.drawIndex" }
+        fields: { bucket_id: "$.attributes.bucketId", buyer: "$.attributes.buyer", token_id: "$.attributes.tokenId", stack: "$.attributes.stack", draw_index: "$.attributes.drawIndex" }
 
       # One row per transaction. units_left is the contract's own figure and is
       # used to reconcile the derived count rather than replace it.
@@ -240,9 +240,9 @@ contracts:
       # elsewhere or revoked approval. `units` is how many disappeared.
       - log_type: "bucket_entry_dropped"
         table: "magi_market_bucket_entry_dropped_events"
-        schema: { bucket_id: numeric, token_id: string, pool: numeric, units: numeric, reason: string }
+        schema: { bucket_id: numeric, token_id: string, stack: numeric, units: numeric, reason: string }
         parse: "json"
-        fields: { bucket_id: "$.attributes.bucketId", token_id: "$.attributes.tokenId", pool: "$.attributes.pool", units: "$.attributes.units", reason: "$.attributes.reason" }
+        fields: { bucket_id: "$.attributes.bucketId", token_id: "$.attributes.tokenId", stack: "$.attributes.stack", units: "$.attributes.units", reason: "$.attributes.reason" }
 
       # A bucket closes either by selling out or by the seller delisting it.
       # Both leave unsold stock with the seller.

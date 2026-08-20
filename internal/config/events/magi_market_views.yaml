@@ -158,20 +158,20 @@ views:
       ORDER BY token, indexer_block_height DESC, added DESC;
 
   # ---- buckets (random-draw sales) ----
-  # Order matters: magi_market_bucket_entries is created before the pool view
+  # Order matters: magi_market_bucket_entries is created before the stack view
   # that reads from it.
 
   # Contents of every bucket, expanded from the JSON entries the contract
   # emits, with what has actually been drawn or gone stale subtracted. This is
   # what lets a buyer see the odds before paying — the whole premise of a
-  # contract-picked draw is that the pool is public.
+  # contract-picked draw is that the stack is public.
   - name: magi_market_bucket_entries
     sql: |
       CREATE OR REPLACE VIEW magi_market_bucket_entries AS
       WITH stocked AS (
         SELECT src.bucket_id,
                (e->>'tokenId') AS token_id,
-               (e->>'pool')::numeric AS pool,
+               (e->>'stack')::numeric AS stack,
                SUM((e->>'amount')::numeric) AS amount_stocked
         FROM (
           SELECT bucket_id, entries FROM magi_market_bucket_listed_events
@@ -180,7 +180,7 @@ views:
         ) src,
         LATERAL json_array_elements(src.entries::json) AS e
         WHERE src.entries IS NOT NULL AND src.entries <> ''
-        GROUP BY src.bucket_id, (e->>'tokenId'), (e->>'pool')::numeric
+        GROUP BY src.bucket_id, (e->>'tokenId'), (e->>'stack')::numeric
       ), drawn AS (
         SELECT bucket_id, token_id, COUNT(*)::numeric AS amount_drawn
         FROM magi_market_bucket_draw_events GROUP BY bucket_id, token_id
@@ -189,7 +189,7 @@ views:
         FROM magi_market_bucket_entry_dropped_events GROUP BY bucket_id, token_id
       )
       SELECT
-        s.bucket_id, s.token_id, s.pool,
+        s.bucket_id, s.token_id, s.stack,
         s.amount_stocked,
         COALESCE(d.amount_drawn, 0) AS amount_drawn,
         COALESCE(x.amount_dropped, 0) AS amount_dropped,
@@ -198,20 +198,20 @@ views:
       LEFT JOIN drawn d ON d.bucket_id = s.bucket_id AND d.token_id = s.token_id
       LEFT JOIN dropped x ON x.bucket_id = s.bucket_id AND x.token_id = s.token_id;
 
-  # Units remaining per pool. A bucket with guaranteed slots drains UNEVENLY —
-  # the guaranteed pool empties first and strands the rest — so per-pool stock
+  # Units remaining per stack. A bucket with guaranteed slots drains UNEVENLY —
+  # the guaranteed stack empties first and strands the rest — so per-stack stock
   # is what decides whether the next pack can actually be filled. The grand
   # total does not.
-  - name: magi_market_bucket_pools
+  - name: magi_market_bucket_stacks
     sql: |
-      CREATE OR REPLACE VIEW magi_market_bucket_pools AS
+      CREATE OR REPLACE VIEW magi_market_bucket_stacks AS
       SELECT
-        bucket_id, pool,
+        bucket_id, stack,
         SUM(amount_stocked) AS units_stocked,
         SUM(amount_left) AS units_left,
         COUNT(*) AS distinct_tokens
       FROM magi_market_bucket_entries
-      GROUP BY bucket_id, pool;
+      GROUP BY bucket_id, stack;
 
   # Current state of each bucket.
   #
