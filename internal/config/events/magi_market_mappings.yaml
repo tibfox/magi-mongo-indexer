@@ -257,3 +257,15 @@ contracts:
         schema: { bucket_id: numeric, seller: string }
         parse: "json"
         fields: { bucket_id: "$.attributes.bucketId", seller: "$.attributes.seller" }
+
+      # ---- floor sweep ----
+      # The per-listing `bought` rows already land above; this is the summary
+      # the buyer actually performed. payment_token is what makes `total`
+      # readable — a sweep spends exactly one asset, and the number alone does
+      # not say which. Emitted only by builds from 2026-08-20 onward; rows
+      # indexed before that carry an empty payment_token.
+      - log_type: "swept"
+        table: "magi_market_swept_events"
+        schema: { buyer: string, count: numeric, total: string, payment_token: string }
+        parse: "json"
+        fields: { buyer: "$.attributes.buyer", count: "$.attributes.count", total: "$.attributes.total", payment_token: "$.attributes.paymentToken" }
