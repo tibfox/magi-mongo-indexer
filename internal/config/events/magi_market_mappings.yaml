@@ -209,9 +209,9 @@ contracts:
       # parser re-serialises them, and magi_market_bucket_entries expands them.
       - log_type: "bucket_listed"
         table: "magi_market_bucket_listed_events"
-        schema: { bucket_id: numeric, seller: string, nft_contract: string, payment_token: string, price_per_draw: string, price_per_pack: string, pack_draws: string, expiration_block: numeric, fee_bps: numeric, royalty_bps: numeric, royalty_recipient: string, entries: string, entry_count: numeric, units: numeric }
+        schema: { bucket_id: numeric, name: string, seller: string, nft_contract: string, payment_token: string, price_per_draw: string, price_per_pack: string, pack_draws: string, expiration_block: numeric, fee_bps: numeric, royalty_bps: numeric, royalty_recipient: string, entries: string, entry_count: numeric, units: numeric }
         parse: "json"
-        fields: { bucket_id: "$.attributes.bucketId", seller: "$.attributes.seller", nft_contract: "$.attributes.nftContract", payment_token: "$.attributes.paymentToken", price_per_draw: "$.attributes.pricePerDraw", price_per_pack: "$.attributes.pricePerPack", pack_draws: "$.attributes.packDraws", expiration_block: "$.attributes.expirationBlock", fee_bps: "$.attributes.feeBps", royalty_bps: "$.attributes.royaltyBps", royalty_recipient: "$.attributes.royaltyRecipient", entries: "$.attributes.entries", entry_count: "$.attributes.entryCount", units: "$.attributes.units" }
+        fields: { bucket_id: "$.attributes.bucketId", name: "$.attributes.name", seller: "$.attributes.seller", nft_contract: "$.attributes.nftContract", payment_token: "$.attributes.paymentToken", price_per_draw: "$.attributes.pricePerDraw", price_per_pack: "$.attributes.pricePerPack", pack_draws: "$.attributes.packDraws", expiration_block: "$.attributes.expirationBlock", fee_bps: "$.attributes.feeBps", royalty_bps: "$.attributes.royaltyBps", royalty_recipient: "$.attributes.royaltyRecipient", entries: "$.attributes.entries", entry_count: "$.attributes.entryCount", units: "$.attributes.units" }
 
       - log_type: "bucket_restocked"
         table: "magi_market_bucket_restocked_events"

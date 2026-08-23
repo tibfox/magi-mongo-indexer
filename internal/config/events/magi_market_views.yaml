@@ -242,7 +242,10 @@ views:
         (so.bucket_id IS NOT NULL) AS sold_out,
         (dl.bucket_id IS NOT NULL) AS delisted,
         (so.bucket_id IS NULL AND dl.bucket_id IS NULL) AS active,
-        l.indexer_contract_id, l.indexer_block_height, l.indexer_ts
+        l.indexer_contract_id, l.indexer_block_height, l.indexer_ts,
+        -- Appended, not inserted: CREATE OR REPLACE VIEW can only add
+        -- columns at the end, and reordering renames every column after it.
+        l.name
       FROM magi_market_bucket_listed_events l
       LEFT JOIN (SELECT bucket_id, SUM(added) AS added, SUM(units_added) AS units_added
                  FROM magi_market_bucket_restocked_events GROUP BY bucket_id) r
