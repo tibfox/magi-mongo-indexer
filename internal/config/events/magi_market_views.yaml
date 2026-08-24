@@ -245,7 +245,12 @@ views:
         l.indexer_contract_id, l.indexer_block_height, l.indexer_ts,
         -- Appended, not inserted: CREATE OR REPLACE VIEW can only add
         -- columns at the end, and reordering renames every column after it.
-        l.name
+        l.name,
+        -- Cover art for the sale: the first NFT the seller put in. Appended
+        -- like l.name, because CREATE OR REPLACE VIEW can only add columns at
+        -- the end. Reads the listing's own entries, so a sale restocked later
+        -- keeps the cover it opened with.
+        NULLIF(l.entries, '')::jsonb -> 0 ->> 'tokenId' AS cover_token_id
       FROM magi_market_bucket_listed_events l
       LEFT JOIN (SELECT bucket_id, SUM(added) AS added, SUM(units_added) AS units_added
                  FROM magi_market_bucket_restocked_events GROUP BY bucket_id) r
