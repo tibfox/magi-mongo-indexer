@@ -250,7 +250,18 @@ views:
         -- like l.name, because CREATE OR REPLACE VIEW can only add columns at
         -- the end. Reads the listing's own entries, so a sale restocked later
         -- keeps the cover it opened with.
-        NULLIF(l.entries, '')::jsonb -> 0 ->> 'tokenId' AS cover_token_id
+        NULLIF(l.entries, '')::jsonb -> 0 ->> 'tokenId' AS cover_token_id,
+        -- The first few stocked tokens, in order, as cover CANDIDATES. Not
+        -- every NFT has artwork, so a single cover can still land on one that
+        -- does not — the client walks these and takes the first that resolves
+        -- to an image. Five is plenty: past that the sale is telling you
+        -- nothing has art.
+        (
+          SELECT jsonb_agg(e ->> 'tokenId' ORDER BY i)
+          FROM jsonb_array_elements(NULLIF(l.entries, '')::jsonb)
+               WITH ORDINALITY AS t(e, i)
+          WHERE i <= 5
+        ) AS cover_token_ids
       FROM magi_market_bucket_listed_events l
       LEFT JOIN (SELECT bucket_id, SUM(added) AS added, SUM(units_added) AS units_added
                  FROM magi_market_bucket_restocked_events GROUP BY bucket_id) r
